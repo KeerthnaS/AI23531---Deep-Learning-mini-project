@@ -6,8 +6,6 @@ A FastAPI backend plus a lightweight React front-end (CDN) that demonstrates:
 - Live captions (chunked transcription input)
 - Session summarization with real-life connections
 
-Note: The emotion model is simulated for this demo. The repo includes hooks to integrate your `fer2013_mini_XCEPTION.102-0.66.hdf5` model later.
-
 ### Prerequisites
 - Python 3.10+
 - Node (optional) if you prefer running a static server with `npx` (otherwise use Python's builtin server)
@@ -74,5 +72,6 @@ The frontend expects the backend at `http://localhost:8000` (CORS is allowed).
 ### Notes
 - This is a self-contained demo optimized for simplicity and clarity.
 - Styling uses animated conic/radial gradients for a modern, accessible experience.
+
 
 
