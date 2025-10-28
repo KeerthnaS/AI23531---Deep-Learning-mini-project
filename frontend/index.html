@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inclusive Classroom Assistant - Realtime Emotion</title>
+  <style>
+    :root { --bg: #0b1020; --fg: #e8eefc; --muted: #a7b0c8; --primary: #6aa7ff; --danger: #ff6b6b; --ok: #3ddc97; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; color: var(--fg); background: radial-gradient(1000px 600px at 10% 10%, #101a3b, transparent), radial-gradient(800px 500px at 90% 20%, #13244d, transparent), conic-gradient(from 180deg at 50% 50%, #0b1020, #0b1020 30%, #0e1630 60%, #0b1020);
+      overflow-x: hidden; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 16px; }
+    h1 { font-size: 20px; margin: 0; letter-spacing: 0.3px; font-weight: 600; color: #f1f5ff; }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button { background: #121a38; color: var(--fg); border: 1px solid #22305f; padding: 10px 14px; border-radius: 10px; cursor: pointer; transition: transform .08s ease, background .2s ease, border-color .2s ease; }
+    button:hover { transform: translateY(-1px); border-color: #2f4ba3; }
+    button.primary { background: linear-gradient(180deg, #1b2a58, #162553); border-color: #2d4ebd; }
+    button.danger { background: linear-gradient(180deg, #4a1b25, #3a1520); border-color: #a23b4a; }
+    button:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+    .field { display: flex; align-items: center; gap: 8px; background: #0e1630; border: 1px solid #22305f; padding: 8px 10px; border-radius: 10px; }
+    .field input { background: transparent; border: none; color: var(--fg); outline: none; width: 260px; }
+    .stage { position: relative; background: #0c1430; border: 1px solid #203060; border-radius: 16px; overflow: hidden; aspect-ratio: 16 / 9; display: grid; place-items: center; }
+    .stage video, .stage canvas { width: 100%; height: 100%; object-fit: cover; }
+    .stage canvas { position: absolute; inset: 0; pointer-events: none; }
+    .statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; color: var(--muted); font-size: 14px; }
+    .pill { padding: 4px 10px; border-radius: 999px; border: 1px solid #33406a; background: #0e1630; color: #cad3ee; }
+    .pill.ok { border-color: #2b7a58; color: #cfeee1; }
+    .pill.warn { border-color: #8a3a3a; color: #ffdada; }
+    .legend { display: flex; gap: 8px; align-items: center; margin-top: 8px; color: #b7c2e8; font-size: 13px; }
+    .swatch { width: 12px; height: 12px; border-radius: 2px; display: inline-block; margin-right: 4px; }
+    .swatch.face { background: #6aa7ff; }
+    .swatch.confused { background: #ff6b6b; }
+    .insights { margin-top: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .card { background: #0c1430; border: 1px solid #203060; border-radius: 14px; padding: 14px; }
+    .card h3 { margin: 0 0 8px 0; font-size: 16px; color: #eaf2ff; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; color: #b7c2e8; white-space: pre-wrap; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    footer { margin-top: 20px; color: #8da0d6; font-size: 12px; text-align: center; }
+    .alert { background: linear-gradient(135deg, #ff6b6b, #ff8e8e); border: 1px solid #ff5252; border-radius: 12px; padding: 12px; margin: 8px 0; color: #fff; }
+    .alert.high { background: linear-gradient(135deg, #ff4757, #ff6b7a); }
+    .alert.medium { background: linear-gradient(135deg, #ffa726, #ffb74d); }
+    .alert.low { background: linear-gradient(135deg, #66bb6a, #81c784); }
+    .student-list { max-height: 200px; overflow-y: auto; }
+    .student-item { background: #0e1630; border: 1px solid #22305f; border-radius: 8px; padding: 8px; margin: 4px 0; }
+    .student-item.confused { border-color: #ff6b6b; background: #2a1a1a; }
+    .student-item.engaged { border-color: #3ddc97; background: #1a2a1a; }
+  </style>
+  <meta name="color-scheme" content="dark light" />
+  <link rel="icon" href="data:," />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Realtime Emotion Detection</h1>
+      <div class="controls">
+        <div class="field" title="Backend base URL">
+          <span style="opacity:.8;">API:</span>
+          <input id="apiBase" type="text" value="http://localhost:8000" />
+        </div>
+        <!-- Gemini key moved to backend; no client key needed -->
+        <button id="btnStartCam" class="primary">Start Camera</button>
+        <button id="btnStopCam" class="danger" disabled>Stop Camera</button>
+        <button id="btnStartRt" class="primary" disabled>Start Realtime</button>
+        <button id="btnStopRt" class="danger" disabled>Stop Realtime</button>
+      </div>
+    </header>
+
+    <section class="stage" id="stage">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <canvas id="capture" style="display:none;"></canvas>
+    </section>
+
+    <div class="statusbar">
+      <span class="pill" id="healthPill">Backend: unknown</span>
+      <span class="pill" id="cameraPill">Camera: idle</span>
+      <span class="pill" id="realtimePill">Realtime: idle</span>
+      <span class="pill" id="fpsPill">FPS: 0</span>
+      <span class="pill" id="facesPill">Faces: 0</span>
+    </div>
+    <div class="legend">
+      <span><span class="swatch face"></span>Face</span>
+      <span><span class="swatch confused"></span>Confused</span>
+    </div>
+
+    <section class="insights">
+      <div class="card">
+        <h3>Class Insights (Inbuilt Analysis)</h3>
+        <div class="row" style="margin-bottom:8px;">
+          <button id="btnAnalyzeNow" class="primary">Analyze Now</button>
+          <span class="pill" id="insightPill">Idle</span>
+        </div>
+        <div class="mono" id="insightText">Inbuilt emotion analysis system ready. Click "Analyze Now" to get insights.</div>
+      </div>
+      <div class="card">
+        <h3>Teacher Alerts & Actions</h3>
+        <div class="row" style="margin-bottom:8px;">
+          <span class="pill" id="attentionPill">Attention: unknown</span>
+          <span class="pill" id="alertCountPill">Alerts: 0</span>
+        </div>
+        <div id="teacherAlerts" class="student-list">No alerts yet.</div>
+        <div class="mono" id="teacherAdvice" style="margin-top:8px;">No advice yet.</div>
+      </div>
+      <div class="card">
+        <h3>Primary Student Status</h3>
+        <div class="student-list" id="studentStatus">No student detected.</div>
+      </div>
+      <div class="card">
+        <h3>Recent Detections</h3>
+        <div class="mono" id="recentText">No data yet.</div>
+      </div>
+    </section>
+
+    <footer>
+      Works best in Chrome/Edge. Ensure backend is running at the API URL above.
+    </footer>
+  </div>
+
+  <script>
+    const videoEl = document.getElementById('video');
+    const overlayEl = document.getElementById('overlay');
+    const captureEl = document.getElementById('capture');
+    const apiBaseInput = document.getElementById('apiBase');
+    const btnStartCam = document.getElementById('btnStartCam');
+    const btnStopCam = document.getElementById('btnStopCam');
+    const btnStartRt = document.getElementById('btnStartRt');
+    const btnStopRt = document.getElementById('btnStopRt');
+    const healthPill = document.getElementById('healthPill');
+    const cameraPill = document.getElementById('cameraPill');
+    const realtimePill = document.getElementById('realtimePill');
+    const fpsPill = document.getElementById('fpsPill');
+    const facesPill = document.getElementById('facesPill');
+    const insightPill = document.getElementById('insightPill');
+    const insightText = document.getElementById('insightText');
+    const recentText = document.getElementById('recentText');
+    const btnAnalyzeNow = document.getElementById('btnAnalyzeNow');
+    const teacherAdviceEl = document.getElementById('teacherAdvice');
+    const attentionPill = document.getElementById('attentionPill');
+    const alertCountPill = document.getElementById('alertCountPill');
+    const teacherAlertsEl = document.getElementById('teacherAlerts');
+    const studentStatusEl = document.getElementById('studentStatus');
+
+    /** @type {MediaStream|null} */
+    let activeStream = null;
+    /** interval id */
+    let realtimeTimer = null;
+    /** for fps */
+    let lastTick = performance.now();
+    let framesCount = 0;
+    // Keep a rolling window of recent detections
+    const recentDetections = [];
+    const RECENT_LIMIT = 12; // ~ last 7.2s with 600ms interval
+    let lastInsightAt = 0;
+    const INSIGHT_MIN_INTERVAL_MS = 8000;
+    // Attention monitoring: sliding window + hysteresis
+    const LOW_ATTENTION_CONF_EMOTIONS = new Set(['fear','sad']);
+    const ATT_WINDOW = 10; // frames in window (~6s at 600ms)
+    const ATT_TRIGGER_RATIO = 0.4; // trigger when >=40% frames in window are inattentive
+    const ATT_CLEAR_RATIO = 0.2; // clear when <20%
+    const ADVICE_COOLDOWN_MS = 15000; // at most once per 15s
+    const attentionWindow = []; // booleans per frame
+    let attentionState = 'unknown'; // 'low' | 'okay' | 'unknown'
+    let lastAdviceAt = 0;
+    // Single student tracking - locked for entire session
+    let primaryStudent = null; // { id, emotion, confidence, is_confused, lastSeen, behavior, box }
+    let primaryStudentId = null; // Locked ID for the session
+    let sessionActive = false; // Whether we're in an active tracking session
+    let currentAlert = null; // Single current alert (no jamming)
+    let lastAlertTime = 0; // Prevent alert spam
+    const ALERT_COOLDOWN = 3000; // 3 seconds between alerts
+
+    // Resize overlay to match displayed video size
+    function syncCanvasSize() {
+      const rect = videoEl.getBoundingClientRect();
+      overlayEl.width = Math.max(1, Math.floor(rect.width));
+      overlayEl.height = Math.max(1, Math.floor(rect.height));
+    }
+
+    // Clear overlay
+    function clearOverlay() {
+      const ctx = overlayEl.getContext('2d');
+      ctx.clearRect(0, 0, overlayEl.width, overlayEl.height);
+    }
+
+    // Health check backend
+    async function checkHealth() {
+      const base = apiBaseInput.value.trim().replace(/\/$/, '');
+      try {
+        const res = await fetch(base + '/api/health', { cache: 'no-store' });
+        const ok = res.ok;
+        healthPill.textContent = ok ? 'Backend: OK' : 'Backend: error';
+        healthPill.className = 'pill ' + (ok ? 'ok' : 'warn');
+      } catch {
+        healthPill.textContent = 'Backend: unreachable';
+        healthPill.className = 'pill warn';
+      }
+    }
+
+    // Start camera
+    async function startCamera() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+        activeStream = stream;
+        videoEl.srcObject = stream;
+        await videoEl.play();
+        cameraPill.textContent = 'Camera: active';
+        cameraPill.className = 'pill ok';
+        btnStartCam.disabled = true;
+        btnStopCam.disabled = false;
+        btnStartRt.disabled = false;
+        syncCanvasSize();
+      } catch (err) {
+        console.error(err);
+        alert('Failed to access camera. Please allow permission and try again.');
+        cameraPill.textContent = 'Camera: error';
+        cameraPill.className = 'pill warn';
+      }
+    }
+
+    // Stop camera
+    function stopCamera() {
+      if (realtimeTimer) stopRealtime();
+      if (activeStream) {
+        activeStream.getTracks().forEach(t => t.stop());
+        activeStream = null;
+      }
+      videoEl.srcObject = null;
+      btnStartCam.disabled = false;
+      btnStopCam.disabled = true;
+      btnStartRt.disabled = true;
+      btnStopRt.disabled = true;
+      cameraPill.textContent = 'Camera: idle';
+      cameraPill.className = 'pill';
+      clearOverlay();
+      facesPill.textContent = 'Faces: 0';
+      fpsPill.textContent = 'FPS: 0';
+      
+      // Reset session tracking
+      primaryStudent = null;
+      primaryStudentId = null;
+      sessionActive = false;
+      currentAlert = null;
+      lastAlertTime = 0;
+      studentStatusEl.innerHTML = '<div style="color: #8da0d6;">No student detected.</div>';
+      teacherAlertsEl.innerHTML = '<div style="color: #8da0d6;">No alerts yet.</div>';
+      alertCountPill.textContent = 'Alerts: 0';
+      alertCountPill.className = 'pill';
+      console.log('Session ended - tracking reset');
+    }
+
+    // Capture current frame to JPEG Blob
+    function captureFrame() {
+      const vw = videoEl.videoWidth || 1280;
+      const vh = videoEl.videoHeight || 720;
+      captureEl.width = vw;
+      captureEl.height = vh;
+      const ctx = captureEl.getContext('2d');
+      ctx.drawImage(videoEl, 0, 0, vw, vh);
+      return new Promise(resolve => captureEl.toBlob(resolve, 'image/jpeg', 0.8));
+    }
+
+    // Draw only the locked primary student on overlay
+    function drawDetections(faces) {
+      syncCanvasSize();
+      const ctx = overlayEl.getContext('2d');
+      ctx.clearRect(0, 0, overlayEl.width, overlayEl.height);
+      
+      // Only draw if we have a locked primary student
+      if (!primaryStudent || !sessionActive) {
+        return;
+      }
+      
+      const vw = captureEl.width, vh = captureEl.height;
+      const sx = overlayEl.width / vw;
+      const sy = overlayEl.height / vh;
+      
+      // Find and draw only our locked student
+      const lockedFace = faces.find(f => f.id === primaryStudentId);
+      if (lockedFace) {
+        const { x, y, w, h } = lockedFace.box;
+        const color = lockedFace.is_confused ? '#ff6b6b' : '#6aa7ff';
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4; // Thicker line for primary student
+        ctx.strokeRect(Math.round(x * sx), Math.round(y * sy), Math.round(w * sx), Math.round(h * sy));
+        
+        // Enhanced label for primary student
+        const label = `PRIMARY STUDENT - ${lockedFace.emotion} ${(lockedFace.confidence*100).toFixed(0)}%`;
+        ctx.font = 'bold 16px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial';
+        const textW = ctx.measureText(label).width + 16;
+        const tx = Math.round(x * sx), ty = Math.max(0, Math.round(y * sy) - 28);
+        ctx.fillStyle = color + '44';
+        ctx.fillRect(tx, ty, textW, 24);
+        ctx.fillStyle = '#eaf2ff';
+        ctx.fillText(label, tx + 8, ty + 18);
+      }
+    }
+
+    // Realtime loop
+    async function tick() {
+      if (!activeStream) return;
+      try {
+        const blob = await captureFrame();
+        if (!blob) return;
+        const form = new FormData();
+        form.append('file', blob, 'frame.jpg');
+        const base = apiBaseInput.value.trim().replace(/\/$/, '');
+        const res = await fetch(base + '/api/emotion', { method: 'POST', body: form });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const faces = Array.isArray(data.faces) ? data.faces : [];
+        facesPill.textContent = 'Faces: ' + faces.length;
+        drawDetections(faces);
+        // Store a compact snapshot for insights
+        recentDetections.push({ t: Date.now(), faces: faces.map(f => ({ id: f.id, emotion: f.emotion, confidence: f.confidence, is_confused: f.is_confused })) });
+        while (recentDetections.length > RECENT_LIMIT) recentDetections.shift();
+        recentText.textContent = JSON.stringify(recentDetections.slice(-5), null, 2);
+
+        // Update single student and determine attention
+        updatePrimaryStudent(faces);
+        updateAttentionSmoothed(faces);
+        generateTeacherAlerts();
+        // Auto analyze (throttled)
+        if (Date.now() - lastInsightAt > INSIGHT_MIN_INTERVAL_MS) {
+          analyzeWithGemini().catch(() => {});
+        }
+        framesCount++;
+        const now = performance.now();
+        if (now - lastTick >= 1000) {
+          fpsPill.textContent = 'FPS: ' + framesCount;
+          framesCount = 0;
+          lastTick = now;
+        }
+      } catch (e) {
+        console.warn('Detection error:', e);
+      }
+    }
+
+    function updateAttentionSmoothed(faces) {
+      // Instant criterion: inattentive if any confused face or fear/sad detected
+      let inattentiveInstant = false;
+      if (faces.length > 0) {
+        for (const f of faces) {
+          const emo = String(f.emotion || '').toLowerCase();
+          if (f.is_confused || LOW_ATTENTION_CONF_EMOTIONS.has(emo)) { inattentiveInstant = true; break; }
+        }
+      }
+      attentionWindow.push(inattentiveInstant);
+      while (attentionWindow.length > ATT_WINDOW) attentionWindow.shift();
+      const inattentiveCount = attentionWindow.reduce((a,b)=>a+(b?1:0),0);
+      const ratio = attentionWindow.length ? inattentiveCount / attentionWindow.length : 0;
+      // Hysteresis: trigger at high ratio, clear at lower ratio
+      if (attentionState !== 'low' && ratio >= ATT_TRIGGER_RATIO) {
+        attentionState = 'low';
+        attentionPill.textContent = 'Attention: low';
+        attentionPill.className = 'pill warn';
+        if (Date.now() - lastAdviceAt > ADVICE_COOLDOWN_MS) {
+          lastAdviceAt = Date.now();
+          requestTeacherAdvice().catch(() => {});
+        }
+      } else if (attentionState !== 'okay' && ratio < ATT_CLEAR_RATIO) {
+        if (faces.length === 0) {
+          attentionState = 'unknown';
+          attentionPill.textContent = 'Attention: no faces';
+          attentionPill.className = 'pill';
+        } else {
+          attentionState = 'okay';
+          attentionPill.textContent = 'Attention: okay';
+          attentionPill.className = 'pill ok';
+        }
+      }
+    }
+
+    function updatePrimaryStudent(faces) {
+      const now = Date.now();
+      
+      if (faces.length === 0) {
+        // No faces detected - clear primary student if not seen for 15s
+        if (primaryStudent && (now - primaryStudent.lastSeen > 15000)) {
+          primaryStudent = null;
+          primaryStudentId = null;
+          sessionActive = false;
+        }
+        return;
+      }
+      
+      // If no primary student yet and session not active, select the first face and lock it
+      if (!primaryStudent && !sessionActive) {
+        const firstFace = faces[0]; // faces are sorted by size
+        primaryStudentId = firstFace.id;
+        primaryStudent = {
+          id: firstFace.id,
+          emotion: firstFace.emotion,
+          confidence: firstFace.confidence,
+          is_confused: firstFace.is_confused,
+          lastSeen: now,
+          behavior: analyzeStudentBehavior(firstFace),
+          box: firstFace.box
+        };
+        sessionActive = true;
+        console.log(`Session started - locked onto student ID: ${primaryStudentId}`);
+      } else if (sessionActive && primaryStudentId) {
+        // Only update if we find our locked student
+        const lockedFace = faces.find(f => f.id === primaryStudentId);
+        if (lockedFace) {
+          // Update our locked student
+          primaryStudent = {
+            id: lockedFace.id,
+            emotion: lockedFace.emotion,
+            confidence: lockedFace.confidence,
+            is_confused: lockedFace.is_confused,
+            lastSeen: now,
+            behavior: analyzeStudentBehavior(lockedFace),
+            box: lockedFace.box
+          };
+        } else {
+          // Our locked student not found - keep existing data but don't update
+          console.log(`Locked student ${primaryStudentId} not found in current frame`);
+        }
+      }
+    }
+
+    function analyzeStudentBehavior(face) {
+      const emotion = String(face.emotion || '').toLowerCase();
+      const confidence = face.confidence || 0;
+      const isConfused = face.is_confused || false;
+      
+      if (isConfused || LOW_ATTENTION_CONF_EMOTIONS.has(emotion)) {
+        return { status: 'confused', severity: 'high', description: 'Student appears confused or distressed' };
+      } else if (emotion === 'neutral' && confidence < 0.4) {
+        return { status: 'distracted', severity: 'medium', description: 'Student seems distracted or unfocused' };
+      } else if (emotion === 'happy' && confidence > 0.6) {
+        return { status: 'engaged', severity: 'low', description: 'Student appears engaged and positive' };
+      } else if (emotion === 'angry' || emotion === 'disgust') {
+        return { status: 'frustrated', severity: 'high', description: 'Student shows signs of frustration' };
+      } else {
+        return { status: 'neutral', severity: 'low', description: 'Student appears neutral' };
+      }
+    }
+
+    function generateTeacherAlerts() {
+      const now = Date.now();
+      
+      if (primaryStudent && sessionActive) {
+        const behavior = primaryStudent.behavior;
+        const emotion = primaryStudent.emotion;
+        const confidence = primaryStudent.confidence;
+        
+        // Only generate new alert if enough time has passed and student needs attention
+        if (behavior.severity === 'high' && (now - primaryStudent.lastSeen) < 5000 && (now - lastAlertTime) > ALERT_COOLDOWN) {
+          currentAlert = {
+            id: `alert_${primaryStudent.id}_${now}`,
+            studentId: primaryStudent.id,
+            type: behavior.status,
+            severity: behavior.severity,
+            message: `Student: ${behavior.description}`,
+            action: getRecommendedAction(behavior.status, emotion),
+            timestamp: now,
+            emotion: emotion,
+            confidence: confidence
+          };
+          lastAlertTime = now;
+        }
+        // Clear alert if student is doing well
+        else if (behavior.severity === 'low' || behavior.status === 'engaged') {
+          currentAlert = null;
+        }
+      } else {
+        // No student or session inactive - clear alert
+        currentAlert = null;
+      }
+      
+      // Update UI
+      updateAlertUI();
+      updateStudentStatusUI();
+    }
+
+    function getRecommendedAction(behavior, emotion) {
+      const actions = {
+        'confused': 'Approach student individually, ask if they need clarification, offer to re-explain the concept',
+        'frustrated': 'Check if student needs help, consider breaking down the task into smaller steps',
+        'distracted': 'Make eye contact, ask a direct question to re-engage, or move closer to their area',
+        'engaged': 'Continue current approach, student is responding well'
+      };
+      return actions[behavior] || 'Monitor student behavior and provide support as needed';
+    }
+
+    function updateAlertUI() {
+      if (!currentAlert) {
+        teacherAlertsEl.innerHTML = '<div style="color: #8da0d6;">No active alerts.</div>';
+        alertCountPill.textContent = 'Alerts: 0';
+        alertCountPill.className = 'pill';
+        return;
+      }
+      
+      alertCountPill.textContent = 'Alert: Active';
+      alertCountPill.className = 'pill warn';
+      
+      const severityClass = currentAlert.severity === 'high' ? 'high' : currentAlert.severity === 'medium' ? 'medium' : 'low';
+      const timeAgo = Math.round((Date.now() - currentAlert.timestamp) / 1000);
+      
+      const alertHtml = `
+        <div class="alert ${severityClass}">
+          <strong>${currentAlert.message}</strong><br>
+          <small>Action: ${currentAlert.action}</small><br>
+          <small style="opacity: 0.8;">Emotion: ${currentAlert.emotion} (${(currentAlert.confidence*100).toFixed(0)}%) - ${timeAgo}s ago</small>
+        </div>
+      `;
+      
+      teacherAlertsEl.innerHTML = alertHtml;
+    }
+
+    function updateStudentStatusUI() {
+      if (!primaryStudent || !sessionActive) {
+        studentStatusEl.innerHTML = '<div style="color: #8da0d6;">No student locked in session.</div>';
+        return;
+      }
+      
+      const statusClass = primaryStudent.behavior.status === 'confused' ? 'confused' : 
+                         primaryStudent.behavior.status === 'engaged' ? 'engaged' : '';
+      
+      const studentHtml = `
+        <div class="student-item ${statusClass}">
+          <strong>🔒 LOCKED STUDENT (ID: ${primaryStudent.id})</strong><br>
+          <small>${primaryStudent.behavior.description}</small><br>
+          <small>Emotion: ${primaryStudent.emotion} (${(primaryStudent.confidence*100).toFixed(0)}%)</small><br>
+          <small>Status: ${primaryStudent.behavior.status} (${primaryStudent.behavior.severity} severity)</small><br>
+          <small style="color: #66bb6a;">Session Active - Tracking Only This Student</small>
+        </div>
+      `;
+      
+      studentStatusEl.innerHTML = studentHtml;
+    }
+
+    async function requestTeacherAdvice() {
+      try {
+        // Generate dynamic text signal based on current student state
+        let textSignal = 'Student appears neutral and engaged.';
+        let wordsPerMinute = 120; // Normal pace
+        
+        if (primaryStudent && sessionActive) {
+          const behavior = primaryStudent.behavior;
+          const emotion = primaryStudent.emotion;
+          
+          if (behavior.status === 'confused') {
+            textSignal = 'Student shows signs of confusion and needs immediate attention.';
+            wordsPerMinute = 80; // Slower pace for confused student
+          } else if (behavior.status === 'frustrated') {
+            textSignal = 'Student appears frustrated and may need additional support.';
+            wordsPerMinute = 100; // Moderate pace
+          } else if (behavior.status === 'distracted') {
+            textSignal = 'Student seems distracted and may need re-engagement.';
+            wordsPerMinute = 140; // Slightly faster to re-engage
+          } else if (behavior.status === 'engaged') {
+            textSignal = 'Student is actively engaged and responding well.';
+            wordsPerMinute = 150; // Good pace for engaged student
+          }
+        }
+        
+        const base = apiBaseInput.value.trim().replace(/\/$/, '');
+        const resp = await fetch(base + '/api/teacher', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text_signal: textSignal, words_per_minute: wordsPerMinute })
+        });
+        if (!resp.ok) throw new Error('Teacher advice HTTP ' + resp.status);
+        const json = await resp.json();
+        
+        // Calculate dynamic stress and fatigue based on student state
+        let dynamicStress = json.stress_level;
+        let dynamicFatigue = json.fatigue_level;
+        
+        if (primaryStudent && sessionActive) {
+          const behavior = primaryStudent.behavior;
+          const confidence = primaryStudent.confidence;
+          
+          // Adjust stress based on student confusion/frustration
+          if (behavior.status === 'confused' || behavior.status === 'frustrated') {
+            dynamicStress = Math.min(1.0, dynamicStress + 0.3);
+          }
+          
+          // Adjust fatigue based on low confidence or distraction
+          if (behavior.status === 'distracted' || confidence < 0.4) {
+            dynamicFatigue = Math.min(1.0, dynamicFatigue + 0.2);
+          }
+          
+          // Reduce stress/fatigue if student is engaged
+          if (behavior.status === 'engaged') {
+            dynamicStress = Math.max(0.0, dynamicStress - 0.2);
+            dynamicFatigue = Math.max(0.0, dynamicFatigue - 0.2);
+          }
+        }
+        
+        const advicePayload = {
+          stress_level: dynamicStress.toFixed(2),
+          fatigue_level: dynamicFatigue.toFixed(2),
+          suggestion: json.suggestion,
+          student_state: primaryStudent ? primaryStudent.behavior.status : 'unknown',
+          confidence: primaryStudent ? (primaryStudent.confidence * 100).toFixed(0) + '%' : 'N/A'
+        };
+        teacherAdviceEl.textContent = JSON.stringify(advicePayload, null, 2);
+      } catch (e) {
+        teacherAdviceEl.textContent = 'Advice error: ' + (e && e.message ? e.message : String(e));
+      }
+    }
+
+    function buildPromptFromRecent() {
+      if (recentDetections.length === 0) return 'No students detected.';
+      // Aggregate emotions and confusion
+      const counts = {};
+      let confused = 0;
+      let totalFaces = 0;
+      for (const snap of recentDetections) {
+        for (const f of snap.faces) {
+          totalFaces++;
+          counts[f.emotion] = (counts[f.emotion] || 0) + 1;
+          if (f.is_confused) confused++;
+        }
+      }
+      const parts = [];
+      parts.push('You are a helpful classroom observer.');
+      parts.push('Analyze recent student facial-emotion detections and infer how the class is going.');
+      parts.push('Return a short JSON with fields: overall, summary, advice.');
+      parts.push('overall must be one of: "great", "okay", "not_good".');
+      parts.push('Use caution—confidence values are noisy; emphasize trends not single frames.');
+      parts.push('Data window: ~last few seconds.');
+      parts.push('Aggregates:');
+      parts.push('total_faces=' + totalFaces);
+      parts.push('confused_estimate=' + confused);
+      parts.push('emotion_counts=' + JSON.stringify(counts));
+      parts.push('Recent samples:');
+      parts.push(JSON.stringify(recentDetections.slice(-8)));
+      return parts.join('\n');
+    }
+
+    async function analyzeWithGemini() {
+      const prompt = buildPromptFromRecent();
+      if (!prompt || prompt.startsWith('No students')) {
+        insightText.textContent = 'Not enough data yet to analyze.';
+        return;
+      }
+      insightPill.textContent = 'Analyzing…';
+      insightPill.className = 'pill';
+      try {
+        const base = apiBaseInput.value.trim().replace(/\/$/, '');
+        const resp = await fetch(base + '/api/insights', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ recent: recentDetections })
+        });
+        if (!resp.ok) throw new Error('Gemini HTTP ' + resp.status);
+        const json = await resp.json();
+        const overall = String(json.overall || 'okay').toLowerCase();
+        if (overall === 'great') {
+          insightPill.textContent = 'Class: Great';
+          insightPill.className = 'pill ok';
+        } else if (overall === 'not_good') {
+          insightPill.textContent = 'Class: Not going well';
+          insightPill.className = 'pill warn';
+        } else {
+          insightPill.textContent = 'Class: Okay';
+          insightPill.className = 'pill';
+        }
+        const payload = { overall, summary: json.summary || '', advice: json.advice || '' };
+        insightText.textContent = JSON.stringify(payload, null, 2);
+      } catch (e) {
+        insightPill.textContent = 'Analyze failed';
+        insightPill.className = 'pill warn';
+        insightText.textContent = 'Error: ' + (e && e.message ? e.message : String(e));
+      } finally {
+        lastInsightAt = Date.now();
+      }
+    }
+
+    function startRealtime() {
+      if (!activeStream) {
+        alert('Start the camera first.');
+        return;
+      }
+      if (realtimeTimer) return;
+      realtimeTimer = setInterval(tick, 600); // ~0.6s as per README
+      realtimePill.textContent = 'Realtime: active';
+      realtimePill.className = 'pill ok';
+      btnStartRt.disabled = true;
+      btnStopRt.disabled = false;
+    }
+
+    function stopRealtime() {
+      if (realtimeTimer) {
+        clearInterval(realtimeTimer);
+        realtimeTimer = null;
+      }
+      realtimePill.textContent = 'Realtime: idle';
+      realtimePill.className = 'pill';
+      btnStartRt.disabled = false;
+      btnStopRt.disabled = true;
+    }
+
+    // Events
+    btnStartCam.addEventListener('click', startCamera);
+    btnStopCam.addEventListener('click', stopCamera);
+    btnStartRt.addEventListener('click', startRealtime);
+    btnStopRt.addEventListener('click', stopRealtime);
+    btnAnalyzeNow.addEventListener('click', () => analyzeWithGemini());
+
+    window.addEventListener('resize', syncCanvasSize);
+    videoEl.addEventListener('loadedmetadata', syncCanvasSize);
+
+    // Initial
+    checkHealth();
+    setInterval(checkHealth, 5000);
+  </script>
+</body>
+</html>
+
+
